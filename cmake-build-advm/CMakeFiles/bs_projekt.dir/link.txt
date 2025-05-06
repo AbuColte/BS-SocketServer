@@ -1,0 +1,1 @@
+/usr/bin/cc -g CMakeFiles/bs_projekt.dir/main.c.o -o bs_projekt 
