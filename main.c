@@ -8,9 +8,82 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "database.h"
-#define PORT 99889
+#define PORT 99884
 #define MAX_CLIENTS  FD_SETSIZE
 #define BUFFER_SIZE  1024
+
+#define MAX_PAIRS 100
+#define MAX_KEY_LEN 50
+#define MAX_VALUE_LEN 100
+typedef struct {
+    char key[MAX_KEY_LEN];
+    char value[MAX_VALUE_LEN];
+} KeyValuePair;
+
+KeyValuePair store[MAX_PAIRS];
+int storeSize = 0;
+
+void trim_newline(char *str) {
+    str[strcspn(str, "\r\n")] = 0;
+}
+
+int put(const char *key, const char *value) {
+    // check if
+    for (int i = 0; i < storeSize + 1; ++i) {
+        if (strcmp(store[i].key, key) == 0) {
+            strncpy(store[i].value, value, MAX_VALUE_LEN);
+            return 2;
+        }
+    }
+
+    // Add new key and val
+    if (storeSize < MAX_PAIRS) {
+        strncpy(store[storeSize].key, key, MAX_KEY_LEN);
+        strncpy(store[storeSize].value, value, MAX_VALUE_LEN);
+        storeSize++;
+    } else {
+        printf("Store full!\n");
+    }
+}
+
+// Get value by key
+int get(const char *key) {
+    char tempString[1024];
+    printf("GET Function accessed \n");
+    for (int i = 0; i < strlen(key) - 1; ++i) {
+        printf("%c\n", key[i]);
+        tempString[i] = key[i];
+    }
+    for (int i = 0; i < storeSize + 1; i++) {
+        if (strcmp(store[i].key, tempString) == 0) {
+            printf("Found!\n");
+            printf("Value : %s\n", store[i].value);
+            printf("Key : %s\n", store[i].key);
+            printf("StoreIndex : %d\n", i);
+            return 1;
+        }
+    }
+    printf("Not Found-\n");
+    return 0;
+}
+// delete bny key
+int del(const char *key) {
+    char trimmedKey[MAX_KEY_LEN];
+    strncpy(trimmedKey, key, MAX_KEY_LEN - 1);
+    trimmedKey[MAX_KEY_LEN - 1] = '\0';
+    trim_newline(trimmedKey);
+
+    for (int i = 0; i < storeSize + 1; i++) {
+        if (strcmp(store[i].key, trimmedKey) == 0) {
+            for (int j = i; j < storeSize - 1; j++) {
+                store[j] = store[j + 1];
+            }
+            storeSize--;
+            return 1;  // Deleted
+        }
+    }
+    return 0;  // Not found
+}
 
 int main() {
     int listen_fd, new_fd, max_fd;
@@ -50,7 +123,7 @@ int main() {
     FD_SET(listen_fd, &master_set);
     max_fd = listen_fd;
 
-    printf("Server listening on port %d...\n", PORT);
+    printf("Server auf port: %d...\n", PORT);
 
 
     while (1) {
@@ -75,8 +148,7 @@ int main() {
                     FD_SET(new_fd, &master_set);
                     if (new_fd > max_fd) max_fd = new_fd;
 
-                    printf("New connection from %s:%d (fd: %d)\n",
-                        inet_ntoa(client_addr.sin_addr),
+                    printf("New connection from %d (fd: %d)\n",
                         ntohs(client_addr.sin_port),
                         new_fd);
 
@@ -170,7 +242,7 @@ int main() {
                 j = 0;  // Reset buffer for next input
             } else {
                 string[j++] = buffer[u];  // Store the character
-                write(fd, buffer, strlen(buffer) - 1);
+                write(fd, buffer, strlen(buffer));
                 // Prevent buffer overflow
                 if (j >= sizeof(string) - 1) {
                     j = 0;  // Reset or handle overflow
