@@ -55,6 +55,12 @@ build CMakeFiles/bs_projekt.dir/main.c.obj: C_COMPILER__bs_projekt_unscanned_Deb
   OBJECT_DIR = CMakeFiles\bs_projekt.dir
   OBJECT_FILE_DIR = CMakeFiles\bs_projekt.dir
 
+build CMakeFiles/bs_projekt.dir/test.c.obj: C_COMPILER__bs_projekt_unscanned_Debug C$:/Users/rdaan/CLionProjects/bs_projekt/test.c || cmake_object_order_depends_target_bs_projekt
+  DEP_FILE = CMakeFiles\bs_projekt.dir\test.c.obj.d
+  FLAGS = -g -std=gnu99 -fdiagnostics-color=always
+  OBJECT_DIR = CMakeFiles\bs_projekt.dir
+  OBJECT_FILE_DIR = CMakeFiles\bs_projekt.dir
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target bs_projekt
@@ -63,7 +69,7 @@ build CMakeFiles/bs_projekt.dir/main.c.obj: C_COMPILER__bs_projekt_unscanned_Deb
 #############################################
 # Link the executable bs_projekt.exe
 
-build bs_projekt.exe: C_EXECUTABLE_LINKER__bs_projekt_Debug CMakeFiles/bs_projekt.dir/main.c.obj
+build bs_projekt.exe: C_EXECUTABLE_LINKER__bs_projekt_Debug CMakeFiles/bs_projekt.dir/main.c.obj CMakeFiles/bs_projekt.dir/test.c.obj
   FLAGS = -g
   LINK_LIBRARIES = -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
   OBJECT_DIR = CMakeFiles\bs_projekt.dir
