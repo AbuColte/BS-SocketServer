@@ -2,172 +2,54 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <errno.h>
-#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "database.h"
-#define PORT 99884
-#define MAX_CLIENTS  FD_SETSIZE
-#define BUFFER_SIZE  1024
+#include <signal.h>
 
+#define PORT 4447
+#define MAX_CLIENTS 10
 #define MAX_PAIRS 100
 #define MAX_KEY_LEN 50
 #define MAX_VALUE_LEN 100
+
 typedef struct {
-    char key[MAX_KEY_LEN];
-    char value[MAX_VALUE_LEN];
-} KeyValuePair;
+    char key[50][1024];
+    char value[50][1024];
+} KeyValueStorage;
 
-KeyValuePair store[MAX_PAIRS];
-int storeSize = 0;
+KeyValueStorage storage[50];
 
-void trim_newline(char *str) {
-    str[strcspn(str, "\r\n")] = 0;
-}
+int transactionInt;
+int *transactionIntPtr = &transactionInt;
 
-int put(const char *key, const char *value) {
-    // check if
-    for (int i = 0; i < storeSize + 1; ++i) {
-        if (strcmp(store[i].key, key) == 0) {
-            strncpy(store[i].value, value, MAX_VALUE_LEN);
-            return 2;
-        }
-    }
-
-    // Add new key and val
-    if (storeSize < MAX_PAIRS) {
-        strncpy(store[storeSize].key, key, MAX_KEY_LEN);
-        strncpy(store[storeSize].value, value, MAX_VALUE_LEN);
-        storeSize++;
-    } else {
-        printf("Store full!\n");
-    }
-}
-
-// Get value by key
-int get(const char *key) {
-    char tempString[1024];
-    printf("GET Function accessed \n");
-    for (int i = 0; i < strlen(key) - 1; ++i) {
-        printf("%c\n", key[i]);
-        tempString[i] = key[i];
-    }
-    for (int i = 0; i < storeSize + 1; i++) {
-        if (strcmp(store[i].key, tempString) == 0) {
-            printf("Found!\n");
-            printf("Value : %s\n", store[i].value);
-            printf("Key : %s\n", store[i].key);
-            printf("StoreIndex : %d\n", i);
-            return 1;
-        }
-    }
-    printf("Not Found-\n");
-    return 0;
-}
-// delete bny key
-int del(const char *key) {
-    char trimmedKey[MAX_KEY_LEN];
-    strncpy(trimmedKey, key, MAX_KEY_LEN - 1);
-    trimmedKey[MAX_KEY_LEN - 1] = '\0';
-    trim_newline(trimmedKey);
-
-    for (int i = 0; i < storeSize + 1; i++) {
-        if (strcmp(store[i].key, trimmedKey) == 0) {
-            for (int j = i; j < storeSize - 1; j++) {
-                store[j] = store[j + 1];
-            }
-            storeSize--;
-            return 1;  // Deleted
-        }
-    }
-    return 0;  // Not found
-}
-
-int main() {
-    int listen_fd, new_fd, max_fd;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t addr_len;
-
-    fd_set master_set, read_set;
-
-
-    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd < 0) {
-        perror("socket failed");
-        exit(EXIT_FAILURE);
-    }
-
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(PORT);
-
-
-    if (bind(listen_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("bind failed");
-        close(listen_fd);
-        exit(EXIT_FAILURE);
-    }
-
-
-    if (listen(listen_fd, 10) < 0) {
-        perror("listen failed");
-        close(listen_fd);
-        exit(EXIT_FAILURE);
-    }
-
-
-    FD_ZERO(&master_set);
-    FD_SET(listen_fd, &master_set);
-    max_fd = listen_fd;
-
-    printf("Server auf port: %d...\n", PORT);
-
-
-    while (1) {
-        read_set = master_set;
-
-        if (select(max_fd + 1, &read_set, NULL, NULL, NULL) < 0) {
-            perror("select failed");
-            exit(EXIT_FAILURE);
-        }
-
-
-        for (int fd = 0; fd <= max_fd; fd++) {
-            if (FD_ISSET(fd, &read_set)) {
-                if (fd == listen_fd) {
-
-                    addr_len = sizeof(client_addr);
-                    new_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &addr_len);
-                    if (new_fd < 0) {
-                        perror("accept failed");
-                        continue;
-                    }
-                    FD_SET(new_fd, &master_set);
-                    if (new_fd > max_fd) max_fd = new_fd;
-
-                    printf("New connection from %d (fd: %d)\n",
-                        ntohs(client_addr.sin_port),
-                        new_fd);
-
-                } else {
-                    char string[1024] = {0};
+int handle_client(int client_fd, int clientID) {
+    int storageSize = 0;
+    char string[1024] = {0};
                     int j = 0;
                     char buffer[1024];
                     while(1) {
-                        int bytesRead = read(fd, buffer, 1024);
+                        printf("%d\n", clientID);
+
+
+                        int bytesRead = read(client_fd, buffer, 1024);
         if (bytesRead < 0) {
             printf("ERROR on read\n");
-            close(fd);
-            FD_CLR(fd, &master_set);
+            close(client_fd);
             break;
         }
         buffer[bytesRead] = '\0';
 
 
         for (int u = 0; u < bytesRead; u++) {
+            if (*transactionIntPtr != 0) {
+                if(clientID != *transactionIntPtr) {
+                    send(client_fd, "transaction occuring...please wait\n", 35, 0);
+                    continue;
+                }
+            }
             if (buffer[u] == '\n') {
                 string[j] = '\0';
                 printf("Full input: %s\n", string);
@@ -180,9 +62,32 @@ int main() {
               string[3] == 't') {
                     string[j] = '\0';
                     printf("Received quit command\n");
-                    FD_CLR(fd, &master_set);
-                    break;
+                    return 0;
               }
+
+                if(string[0] == 'b' && string[1] == 'e' && string[2] == 'g') {
+                    *transactionIntPtr = clientID;
+                    memset(string, 0, sizeof(string));
+                }
+
+                if(string[0] == 't' && string[1] == 'e' && string[2] == 's') {
+                    if(*transactionIntPtr == clientID) {
+                        printf("JAckemann");
+                        printf("Current Transaction %d\n", *transactionIntPtr);
+                    } else {
+                        printf("nackenmann");
+                        printf("Current Transaction %d\n", *transactionIntPtr);
+                    }
+                }
+
+                if(string[0] == 'e' && string[1] == 'n' && string[2] == 'd') {
+                    if (*transactionIntPtr != 0) {
+                        *transactionIntPtr = 0;
+                    }
+                    else {
+                        printf("No Transaction Occuring");
+                    }
+                }
 
                 // Check if input starts with "put"
                 if (string[0] == 'p' && string[1] == 'u' && string[2] == 't') {
@@ -195,7 +100,12 @@ int main() {
                         if (key && value) {
                             printf("Key: %s\n", key);
                             printf("Value: %s\n", value);
-                            put(key, value);
+                            strcpy(storage[clientID - 1].key[storageSize], key);
+                            storage[clientID - 1].key[storageSize][sizeof(storage[client_fd].key[storageSize]) - 1] = '\0';
+                            strcpy(storage[clientID - 1].value[storageSize], value);
+                            storage[clientID - 1].value[storageSize][sizeof(storage[client_fd].value[storageSize]) - 1] = '\0';
+                            storageSize++;
+                            //put(key, value);
                         } else {
                             printf("Error: key or value missing.\n");
                         }
@@ -210,9 +120,15 @@ int main() {
 
                     if (command && strcmp(command, "get") == 0) {
                         char *key = strtok(NULL, " ");
-                        printf(" %d\n", get(key));
                         if (key) {
                             printf("At Key: %s\n", key);
+                            int keyValIndex = 0;
+                            key[strlen(key) - 1] = '\0';
+                            for (int i = 0; i < storageSize; i++) {
+                                if (strcmp(storage[clientID - 1].key[i], key) == 0) {
+                                    printf("%s\n", storage[clientID - 1].value[i]);
+                                }
+                            }
                         } else {
                             printf("Error: key or value missing.\n");
                         }
@@ -227,9 +143,16 @@ int main() {
 
                     if (command && strcmp(command, "del") == 0) {
                         char *key = strtok(NULL, " ");
-                        printf(" %d\n", del(key));
                         if (key) {
+                            key[strlen(key) - 1] = '\0';
                             printf("Key deleted: %s\n", key);
+                            for (int i = 0; i < storageSize; i++) {
+                                if (strcmp(storage[clientID - 1].key[i], key) == 0) {
+                                    strcpy(storage[clientID - 1].value[i], storage[client_fd].value[i + 1]);
+                                    strcpy(storage[clientID - 1].key[i], storage[client_fd].key[i + 1]);
+                                    i == 0 ? storageSize = 0 : storageSize--;
+                                }
+                            }
                         } else {
                             printf("Error: key or value missing.\n");
                         }
@@ -242,7 +165,7 @@ int main() {
                 j = 0;  // Reset buffer for next input
             } else {
                 string[j++] = buffer[u];  // Store the character
-                write(fd, buffer, strlen(buffer));
+                write(client_fd, buffer, strlen(buffer));
                 // Prevent buffer overflow
                 if (j >= sizeof(string) - 1) {
                     j = 0;  // Reset or handle overflow
@@ -253,10 +176,63 @@ int main() {
 
         memset(buffer, 0, 1024);  // Clear the read buffer
                     }
-                }
-            }
+
+    close(client_fd);
+    exit(0);
+}
+
+int ClientCount = 0;
+
+int main() {
+    signal(SIGCHLD, SIG_IGN);  // Prevent zombies
+
+    // Shared memory setup
+    key_t key = ftok("shmfile", 65);
+    int shmid = shmget(key, sizeof(int), 0666 | IPC_CREAT);
+    if (shmid == -1) {
+        perror("shmget failed");
+        exit(1);
+    }
+
+    transactionIntPtr = (int *) shmat(shmid, NULL, 0);
+    if (transactionIntPtr == (void *) -1) {
+        perror("shmat failed");
+        exit(1);
+    }
+
+
+    *transactionIntPtr = 0;  // initialize transactionInt to 0
+
+    // Socket setup
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(PORT);
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+
+    bind(sockfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) ? printf("failed") : printf("success");
+    listen(sockfd, MAX_CLIENTS);
+
+    printf("Server listening on port %d...\n", PORT);
+
+    while (1) {
+        struct sockaddr_in clientAddr;
+        socklen_t addr_size = sizeof(clientAddr);
+        int newSocket = accept(sockfd, (struct sockaddr *)&clientAddr, &addr_size);
+        printf("Accepted new connection, fd=%d\n", newSocket);
+        ClientCount++;
+
+        if (fork() == 0) {
+            close(sockfd);  // child doesn't need listening socket
+            printf("Client %d'th connected\n", ClientCount);
+            handle_client(newSocket, ClientCount);
+        } else {
+            close(newSocket);  // parent doesn't handle client
         }
-        }
-    close(listen_fd);
+    }
+
+    // Cleanup
+    close(sockfd);
+
     return 0;
 }
