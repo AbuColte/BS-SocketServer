@@ -9,32 +9,54 @@
 #include <arpa/inet.h>
 #include <signal.h>
 
-#define PORT 4447
+#define PORT 4445
 #define MAX_CLIENTS 10
 #define MAX_PAIRS 100
 #define MAX_KEY_LEN 50
 #define MAX_VALUE_LEN 100
 
+
 typedef struct {
-    char key[50][1024];
-    char value[50][1024];
+    char subbedKey[MAX_KEY_LEN];
+    char subbedValue[MAX_VALUE_LEN];
+    int subbedClientID;
+} SubbedData;
+
+typedef struct {
+    char key[MAX_PAIRS][MAX_KEY_LEN];
+    char value[MAX_PAIRS][MAX_VALUE_LEN];
+    int storageSize;
+    SubbedData subbedData[20];
+    int subbedDataIndex;
 } KeyValueStorage;
 
-KeyValueStorage storage[50];
+typedef struct {
+    char publicKey[MAX_KEY_LEN];
+    char publicValue[MAX_VALUE_LEN];
+    int publishedClientID;
+} PublishedData;
 
-int transactionInt;
-int *transactionIntPtr = &transactionInt;
+typedef struct {
+    KeyValueStorage storage[MAX_CLIENTS];
+    int transactionInt;
+    PublishedData publishedData[20];
+    int publishedDataIndex;
+} SharedMemoryData;
+
+SharedMemoryData *sharedData;
 
 int handle_client(int client_fd, int clientID) {
-    int storageSize = 0;
+    sharedData->storage[clientID - 1].subbedDataIndex = 0;
+    sharedData->storage[clientID - 1].storageSize = 0;
     char string[1024] = {0};
-                    int j = 0;
-                    char buffer[1024];
-                    while(1) {
-                        printf("%d\n", clientID);
+    int j = 0;
+    char buffer[1024];
+    char subBuffer[1024];
+    char *subBufferPtr = subBuffer;
+    while(1) {
 
 
-                        int bytesRead = read(client_fd, buffer, 1024);
+        int bytesRead = read(client_fd, buffer, 1024);
         if (bytesRead < 0) {
             printf("ERROR on read\n");
             close(client_fd);
@@ -44,12 +66,13 @@ int handle_client(int client_fd, int clientID) {
 
 
         for (int u = 0; u < bytesRead; u++) {
-            if (*transactionIntPtr != 0) {
-                if(clientID != *transactionIntPtr) {
+            if (sharedData->transactionInt != 0) {
+                if(clientID != sharedData->transactionInt) {
                     send(client_fd, "transaction occuring...please wait\n", 35, 0);
                     continue;
                 }
             }
+
             if (buffer[u] == '\n') {
                 string[j] = '\0';
                 printf("Full input: %s\n", string);
@@ -66,46 +89,121 @@ int handle_client(int client_fd, int clientID) {
               }
 
                 if(string[0] == 'b' && string[1] == 'e' && string[2] == 'g') {
-                    *transactionIntPtr = clientID;
+                    sharedData->transactionInt = clientID;
                     memset(string, 0, sizeof(string));
                 }
 
-                if(string[0] == 't' && string[1] == 'e' && string[2] == 's') {
-                    if(*transactionIntPtr == clientID) {
-                        printf("JAckemann");
-                        printf("Current Transaction %d\n", *transactionIntPtr);
-                    } else {
-                        printf("nackenmann");
-                        printf("Current Transaction %d\n", *transactionIntPtr);
+                if(string[0] == 'c' && string[1] == 'h' && string[2] == 'e' && string[3] == 'c' && string[4] == 'k') {
+                    if (sharedData->storage[clientID - 1].subbedData[sharedData->storage[clientID - 1].subbedDataIndex].subbedKey != NULL) {
+                        if (&subBufferPtr != NULL) {
+                            if (subBufferPtr != sharedData->storage[clientID - 1].subbedData[sharedData->storage[clientID - 1].subbedDataIndex].subbedValue) {
+                                strcpy(subBufferPtr, sharedData->storage[clientID - 1].subbedData[sharedData->storage[clientID - 1].subbedDataIndex].subbedValue);
+                                printf("Public Key: %s\n", sharedData->publishedData[sharedData->publishedDataIndex - 1].publicKey);
+                                printf("Public Key: %s\n", sharedData->publishedData[sharedData->publishedDataIndex - 1].publicValue);
+                            }
+                        }
                     }
+                    memset(string, 0, sizeof(string));
+                }
+
+                if (string[0] == 's' && string[1] == 'u' && string[2] == 'b') {
+                    char *command = strtok(string, " ");
+
+                    if (command && strcmp(command, "sub") == 0) {
+                        char *key = strtok(NULL, " ");
+                        if (key) {
+                            key[strlen(key) - 1] = '\0';
+                            for (int i = 0; i < sharedData->publishedDataIndex; i++) {
+                                if (strcmp(key, sharedData->publishedData[i].publicKey) == 0 && sharedData->publishedData[i].publishedClientID != clientID) {
+                                    strcpy(sharedData->storage[clientID - 1].subbedData[sharedData->storage[clientID - 1].subbedDataIndex].subbedKey, key);
+                                    strcpy(sharedData->storage[clientID - 1].subbedData[sharedData->storage[clientID - 1].subbedDataIndex].subbedValue, sharedData->publishedData[i].publicValue);
+                                    sharedData->storage[clientID - 1].subbedData[sharedData->storage[clientID - 1].subbedDataIndex].subbedClientID =
+                                        sharedData->publishedData[i].publishedClientID;
+                                    sharedData->storage[clientID - 1].subbedDataIndex++;
+                                    printf("Subbed Index: %d\n", sharedData->storage[clientID - 1].subbedDataIndex);
+                                    printf("Subbed Key: %s\n", sharedData->storage[clientID - 1].subbedData[sharedData->storage[clientID - 1].subbedDataIndex].subbedKey);
+                                }
+                                printf("Public Key: %s\n", sharedData->publishedData[i].publicKey);
+                                printf("Public Key: %s\n", sharedData->publishedData[i].publicValue);
+                            }
+                        } else {
+                            printf("Error: key or value missing.\n");
+                        }
+                    } else {
+                        printf("Not a 'put' command.\n");
+                    }
+                    memset(string, 0, sizeof(string));
+                }
+
+                if (string[0] == 'p' && string[1] == 'u' && string[2] == 'b') {
+                    char *command = strtok(string, " ");
+
+                    if (command && strcmp(command, "pub") == 0) {
+                        char *key = strtok(NULL, " ");
+                        if (key) {
+                            key[strlen(key) - 1] = '\0';
+
+                            for (int i = 0; i < sharedData->storage[clientID - 1].storageSize; i++) {
+                                if (strcmp(sharedData->storage[clientID - 1].key[i], key) == 0) {
+                                    printf("published key: %s\n", key);
+                                    strcpy(sharedData->publishedData[sharedData->publishedDataIndex].publicKey, key);
+                                    strcpy(sharedData->publishedData[sharedData->publishedDataIndex].publicValue, sharedData->storage[clientID - 1].value[i]);
+                                    sharedData->publishedData[sharedData->publishedDataIndex].publishedClientID = clientID;
+                                    sharedData->publishedDataIndex++;
+
+                                }
+                            }
+
+                        } else {
+                            printf("Error: key or value missing.\n");
+                        }
+                    } else {
+                        printf("Not a 'put' command.\n");
+                    }
+                    memset(string, 0, sizeof(string));
                 }
 
                 if(string[0] == 'e' && string[1] == 'n' && string[2] == 'd') {
-                    if (*transactionIntPtr != 0) {
-                        *transactionIntPtr = 0;
+                    if (sharedData->transactionInt != 0) {
+                        sharedData->transactionInt = 0;
                     }
                     else {
                         printf("No Transaction Occuring");
                     }
+                    memset(string, 0, sizeof(string));
                 }
 
                 // Check if input starts with "put"
                 if (string[0] == 'p' && string[1] == 'u' && string[2] == 't') {
                     char *command = strtok(string, " ");
-
                     if (command && strcmp(command, "put") == 0) {
                         char *key = strtok(NULL, " ");
                         char *value = strtok(NULL, " ");
-
                         if (key && value) {
-                            printf("Key: %s\n", key);
-                            printf("Value: %s\n", value);
-                            strcpy(storage[clientID - 1].key[storageSize], key);
-                            storage[clientID - 1].key[storageSize][sizeof(storage[client_fd].key[storageSize]) - 1] = '\0';
-                            strcpy(storage[clientID - 1].value[storageSize], value);
-                            storage[clientID - 1].value[storageSize][sizeof(storage[client_fd].value[storageSize]) - 1] = '\0';
-                            storageSize++;
-                            //put(key, value);
+                            key[sizeof(key)] = '\0';
+                            value[sizeof(key)] = '\0';
+                            for (int i = 0; i <= sharedData->storage[clientID - 1].storageSize; i++) {
+                                if (strcmp(sharedData->storage[clientID - 1].key[i], key) == 0) {
+                                    strcpy(sharedData->storage[clientID - 1].value[i], value);
+                                    printf("Changed Key: %s\n", key);
+                                    printf("New Value: %s\n", value);
+                                    for (int p = 0; p < sharedData->publishedDataIndex; p++) {
+                                        if (strcmp(sharedData->publishedData[p].publicKey, key) == 0) {
+                                            strcpy(sharedData->publishedData[p].publicValue, value);
+                                            printf("changed Public Key: %s\n", key);
+                                        }
+                                    }
+                                }
+                                if (sharedData->storage[clientID - 1].storageSize == 0) {
+                                    printf("Key: %s\n", key);
+                                    printf("Value: %s\n", value);
+                                    strcpy(sharedData->storage[clientID - 1].key[sharedData->storage[clientID - 1].storageSize], key);
+                                    strcpy(sharedData->storage[clientID - 1].value[sharedData->storage[clientID - 1].storageSize], value);
+                                    sharedData->storage[clientID - 1].storageSize++;
+                                    //put(key, value);
+                                }
+                            }
+
                         } else {
                             printf("Error: key or value missing.\n");
                         }
@@ -121,19 +219,18 @@ int handle_client(int client_fd, int clientID) {
                     if (command && strcmp(command, "get") == 0) {
                         char *key = strtok(NULL, " ");
                         if (key) {
-                            printf("At Key: %s\n", key);
                             int keyValIndex = 0;
                             key[strlen(key) - 1] = '\0';
-                            for (int i = 0; i < storageSize; i++) {
-                                if (strcmp(storage[clientID - 1].key[i], key) == 0) {
-                                    printf("%s\n", storage[clientID - 1].value[i]);
+                            for (int i = 0; i < sharedData->storage[clientID - 1].storageSize; i++) {
+                                if (strcmp(sharedData->storage[clientID - 1].key[i], key) == 0) {
+                                    printf("Value: %s\n", sharedData->storage[clientID - 1].value[i]);
                                 }
                             }
                         } else {
                             printf("Error: key or value missing.\n");
                         }
                     } else {
-                        printf("Not a 'put' command.\n");
+                        printf("Not a 'get' command.\n");
                     }
                     memset(string, 0, sizeof(string));
                 }
@@ -146,15 +243,15 @@ int handle_client(int client_fd, int clientID) {
                         if (key) {
                             key[strlen(key) - 1] = '\0';
                             printf("Key deleted: %s\n", key);
-                            for (int i = 0; i < storageSize; i++) {
-                                if (strcmp(storage[clientID - 1].key[i], key) == 0) {
-                                    strcpy(storage[clientID - 1].value[i], storage[client_fd].value[i + 1]);
-                                    strcpy(storage[clientID - 1].key[i], storage[client_fd].key[i + 1]);
-                                    i == 0 ? storageSize = 0 : storageSize--;
+                            for (int i = 0; i < sharedData->storage[clientID - 1].storageSize; i++) {
+                                if (strcmp(sharedData->storage[clientID - 1].key[i], key) == 0) {
+                                    strcpy(sharedData->storage[clientID - 1].value[i], sharedData->storage[client_fd].value[i + 1]);
+                                    strcpy(sharedData->storage[clientID - 1].key[i], sharedData->storage[client_fd].key[i + 1]);
+                                    i == 0 ? sharedData->storage[clientID - 1].storageSize = 0 : sharedData->storage[clientID - 1].storageSize--;
                                 }
                             }
                         } else {
-                            printf("Error: key or value missing.\n");
+                            printf("Error: key missing.\n");
                         }
                     } else {
                         printf("Not a 'del' command.\n");
@@ -187,21 +284,21 @@ int main() {
     signal(SIGCHLD, SIG_IGN);  // Prevent zombies
 
     // Shared memory setup
-    key_t key = ftok("shmfile", 65);
-    int shmid = shmget(key, sizeof(int), 0666 | IPC_CREAT);
+    key_t key = 1231;
+    int shmid = shmget(key, sizeof(SharedMemoryData), 0666 | IPC_CREAT);
     if (shmid == -1) {
         perror("shmget failed");
         exit(1);
     }
 
-    transactionIntPtr = (int *) shmat(shmid, NULL, 0);
-    if (transactionIntPtr == (void *) -1) {
+    sharedData = (SharedMemoryData *)shmat(shmid, NULL, 0);
+    if (sharedData == (void *)-1) {
         perror("shmat failed");
         exit(1);
     }
 
-
-    *transactionIntPtr = 0;  // initialize transactionInt to 0
+    sharedData->transactionInt = 0;
+    sharedData->publishedDataIndex = 0;
 
     // Socket setup
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
